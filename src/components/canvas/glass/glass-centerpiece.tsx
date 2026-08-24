@@ -3,97 +3,94 @@
 import { useRef, useMemo } from 'react'
 import * as THREE from 'three'
 import { useFrame, useThree } from '@react-three/fiber'
-import { MeshTransmissionMaterial, Center, Float } from '@react-three/drei'
-import { FontLoader } from 'three/examples/jsm/loaders/FontLoader.js'
-import { TextGeometry } from 'three/examples/jsm/geometries/TextGeometry.js'
+import { useGLTF, MeshTransmissionMaterial } from '@react-three/drei'
 import * as BufferGeometryUtils from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { FallingStickers } from './stickers'
 import { getLenisScrollSnapshot } from '@/lib/scroll-bus'
 import { getPointerUV } from '@/lib/pointer-bus'
-import fontData from '../../../../public/gentilis_bold.typeface.json'
 
 export function GlassCenterpiece() {
   const meshRef = useRef<THREE.Mesh>(null)
-  const groupRef = useRef<THREE.Group>(null)
-  const lightRef = useRef<THREE.PointLight>(null)
-  const targetLightPos = useRef(new THREE.Vector3(0, 0, 3))
+  const groupRef = useRef<THREE.Object3D>(null)
   const { size } = useThree()
+  
+  // Use the exact GLB requested by the user
+  const { scene: gltf } = useGLTF('/LNM_Hacks.glb')
 
   const geometry = useMemo(() => {
-    const loader = new FontLoader()
-    const font = loader.parse(fontData)
-
-    const geomTop = new TextGeometry('LNM', {
-      font,
-      size: 0.85,
-      depth: 0.35,
-      curveSegments: 20,
-      bevelEnabled: true,
-      bevelThickness: 0.12,
-      bevelSize: 0.08,
-      bevelOffset: 0,
-      bevelSegments: 12,
+    // Collect all geometries
+    const geometries: THREE.BufferGeometry[] = []
+    gltf.traverse((child) => {
+      if ((child as THREE.Mesh).isMesh) {
+        const mesh = child as THREE.Mesh
+        const geom = mesh.geometry.clone()
+        geom.applyMatrix4(mesh.matrixWorld)
+        geometries.push(geom)
+      }
     })
 
-    const geomBottom = new TextGeometry('HACKS 9.0', {
-      font,
-      size: 0.58,
-      depth: 0.32,
-      curveSegments: 20,
-      bevelEnabled: true,
-      bevelThickness: 0.1,
-      bevelSize: 0.07,
-      bevelOffset: 0,
-      bevelSegments: 12,
-    })
+    if (geometries.length === 0) {
+      return new THREE.BoxGeometry()
+    }
 
-    // Center each line horizontally
-    geomTop.computeBoundingBox()
-    const topBox = geomTop.boundingBox!
-    const topWidth = topBox.max.x - topBox.min.x
-    geomTop.translate(-topWidth / 2, 0.28, 0)
+    // Merge into one
+    let merged = BufferGeometryUtils.mergeGeometries(geometries, false)
 
-    geomBottom.computeBoundingBox()
-    const btmBox = geomBottom.boundingBox!
-    const btmWidth = btmBox.max.x - btmBox.min.x
-    geomBottom.translate(-btmWidth / 2, -0.65, 0)
-
-    let merged = BufferGeometryUtils.mergeGeometries([geomTop, geomBottom], false)
-
-    // Center total bounding box
+    // Center at origin
     merged.computeBoundingBox()
     const box = merged.boundingBox!
     const center = new THREE.Vector3()
     box.getCenter(center)
     merged.translate(-center.x, -center.y, -center.z)
 
-    // Weld vertices and calculate smooth normals for pristine glass refraction
+    // Undo the ~22.5° Y rotation baked into the GLB's parent node
+    const undoRotation = new THREE.Matrix4().makeRotationY(Math.PI / 8)
+    merged.applyMatrix4(undoRotation)
+
+    // Normalize scale
+    merged.computeBoundingBox()
+    const box2 = merged.boundingBox!
+    const boxSize = new THREE.Vector3()
+    box2.getSize(boxSize)
+    const maxDim = Math.max(boxSize.x, boxSize.y, boxSize.z)
+    if (maxDim > 0) {
+      const s = 2.0 / maxDim
+      merged.scale(s, s, s)
+    }
+
+    // Squash it to make it thick glass but not overly extruded
+    merged.scale(1, 1, 0.25)
+
+    // Weld vertices and fix normals so smooth shading works on this GLB
     merged.deleteAttribute('normal')
-    merged = BufferGeometryUtils.mergeVertices(merged, 1e-3)
+    merged = BufferGeometryUtils.mergeVertices(merged, 1e-4)
     merged.computeVertexNormals()
 
     return merged
-  }, [])
+  }, [gltf])
+
+  const lightRef = useRef<THREE.PointLight>(null)
+  const targetLightPos = useRef(new THREE.Vector3(0, 0, 3))
 
   useFrame((state) => {
     if (!meshRef.current || !groupRef.current) return
-
+    
     // Read scroll to position the centerpiece
     const scroll = getLenisScrollSnapshot()
     const scrollYOffset = (scroll.scrollTop / size.height) * 10
     groupRef.current.position.y = -scrollYOffset
-
-    // Add subtle floating effect
+    
+    // Add a very subtle floating effect
     const t = state.clock.elapsedTime
-    groupRef.current.position.y += Math.sin(t * 1.5) * 0.04
-    groupRef.current.rotation.x = Math.sin(t * 0.5) * 0.03
-    groupRef.current.rotation.y = Math.cos(t * 0.6) * 0.03
+    groupRef.current.position.y += Math.sin(t * 1.5) * 0.05
+    groupRef.current.rotation.x = Math.sin(t * 0.5) * 0.05
+    groupRef.current.rotation.y = Math.cos(t * 0.6) * 0.05
 
-    // Smooth mouse-following light position
+    // Smoothly track mouse with the light
     const pointer = getPointerUV()
-    targetLightPos.current.x = (pointer.x - 0.5) * 12
-    targetLightPos.current.y = -(pointer.y - 0.5) * 12
-
+    targetLightPos.current.x = (pointer.x - 0.5) * 15
+    targetLightPos.current.y = -(pointer.y - 0.5) * 15
+    
     if (lightRef.current) {
       lightRef.current.position.lerp(targetLightPos.current, 0.1)
     }
@@ -101,16 +98,18 @@ export function GlassCenterpiece() {
 
   return (
     <>
-      {/* Dynamic light tracking pointer */}
-      <pointLight ref={lightRef} intensity={2.5} distance={15} color="#ffffff" />
-      <ambientLight intensity={0.25} />
+      {/* Interactive mouse light - greatly reduced intensity to stop lens flare blowouts */}
+      <pointLight ref={lightRef} intensity={3} distance={15} color="#ffffff" />
+      
+      {/* Subtle ambient fill so the glass isn't completely pitch black in shadows */}
+      <ambientLight intensity={0.2} />
 
-      <group ref={groupRef} position={[0, 0, 0]} scale={1.5}>
+      <group ref={groupRef} position={[0, 0, 0]} scale={1.8}>
         <mesh ref={meshRef} geometry={geometry}>
           <MeshTransmissionMaterial
             backside={true}
-            samples={6}
-            thickness={1.2}
+            samples={4}
+            thickness={1.5}
             chromaticAberration={0.06}
             anisotropy={0.1}
             distortion={0.0}
@@ -119,11 +118,11 @@ export function GlassCenterpiece() {
             iridescence={0.0}
             clearcoat={1.0}
             clearcoatRoughness={0.05}
-            roughness={0.04}
+            roughness={0.05}
             transmission={1.0}
             ior={1.25}
-            color="#3b78ff"
-            attenuationDistance={1.4}
+            color="#4a8dff" // Brighter electric blue tint
+            attenuationDistance={1.5}
             attenuationColor="#ffffff"
           />
         </mesh>
@@ -132,3 +131,5 @@ export function GlassCenterpiece() {
     </>
   )
 }
+
+useGLTF.preload('/LNM_Hacks.glb')
