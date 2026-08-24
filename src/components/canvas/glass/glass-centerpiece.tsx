@@ -98,32 +98,38 @@ export function GlassCenterpiece() {
 
   return (
     <>
-      {/* Interactive mouse light - greatly reduced intensity to stop lens flare blowouts */}
-      <pointLight ref={lightRef} intensity={3} distance={15} color="#ffffff" />
+      {/* Interactive mouse light with soft falloff */}
+      <pointLight ref={lightRef} intensity={4.5} distance={16} color="#cce0ff" />
       
-      {/* Subtle ambient fill so the glass isn't completely pitch black in shadows */}
-      <ambientLight intensity={0.2} />
+      {/* Front fill light */}
+      <directionalLight position={[0, 2, 5]} intensity={1.2} color="#9ec2ff" />
+
+      {/* Backlight to illuminate through the glass from behind */}
+      <pointLight position={[0, 0, -2.5]} intensity={6.0} color="#4585ff" distance={10} />
+
+      {/* Ambient fill */}
+      <ambientLight intensity={0.5} />
 
       <group ref={groupRef} position={[0, 0, 0]} scale={1.8}>
         <mesh ref={meshRef} geometry={geometry}>
           <MeshTransmissionMaterial
             backside={true}
-            samples={4}
-            thickness={1.5}
-            chromaticAberration={0.06}
-            anisotropy={0.1}
-            distortion={0.0}
+            samples={6}
+            thickness={0.8}
+            chromaticAberration={0.08}
+            anisotropy={0.15}
+            distortion={0.02}
             distortionScale={0.3}
             temporalDistortion={0.1}
             iridescence={0.0}
             clearcoat={1.0}
-            clearcoatRoughness={0.05}
-            roughness={0.05}
-            transmission={1.0}
-            ior={1.25}
-            color="#4a8dff" // Brighter electric blue tint
-            attenuationDistance={1.5}
-            attenuationColor="#ffffff"
+            clearcoatRoughness={0.03}
+            roughness={0.02}
+            transmission={0.96}
+            ior={1.22}
+            color="#5a98ff"
+            attenuationDistance={3.0}
+            attenuationColor="#c2dcff"
           />
         </mesh>
       </group>

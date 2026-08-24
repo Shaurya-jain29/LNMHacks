@@ -56,16 +56,16 @@ void main() {
   
   float fluid = (n + n2) * 0.5 + 0.5; // Map to 0-1
   
-  // Haoqi.design colors: Very deep navy background
-  vec3 baseColor = vec3(0.02, 0.03, 0.12); // Deep navy
-  vec3 highlightColor = vec3(0.06, 0.1, 0.35); // Subtle royal blue wave highlights
+  // Haoqi.design colors: Rich luminous royal blue background
+  vec3 baseColor = vec3(0.015, 0.045, 0.22); // Deep rich royal blue
+  vec3 highlightColor = vec3(0.06, 0.16, 0.52); // Luminous electric blue waves
   
   // Mix them based on the fluid noise
-  vec3 finalColor = mix(baseColor, highlightColor, smoothstep(0.2, 0.8, fluid));
+  vec3 finalColor = mix(baseColor, highlightColor, smoothstep(0.15, 0.85, fluid));
   
-  // Add a subtle vignette
+  // Add a very subtle vignette
   float vignette = length(uv - 0.5);
-  finalColor = mix(finalColor, vec3(0.0), vignette * 0.5);
+  finalColor = mix(finalColor, vec3(0.005, 0.01, 0.08), vignette * 0.35);
   
   gl_FragColor = vec4(finalColor, 1.0);
 }
