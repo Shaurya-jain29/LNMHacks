@@ -6,8 +6,7 @@ import { ScrollShell } from "@/components/canvas/scroll-shell";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Haoqi Clone",
-  description: "Phase 1 - Shared RAF",
+  title: "LNMHACKS",
 };
 
 export default function RootLayout({

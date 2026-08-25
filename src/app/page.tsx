@@ -9,7 +9,6 @@ import { getPointerUV } from '@/lib/pointer-bus'
 import { ProjectMeshes } from '@/components/canvas/grid/project-meshes'
 import { ProjectGrid } from '@/components/dom/project-grid'
 import { GlassCenterpiece } from '@/components/canvas/glass/glass-centerpiece'
-import { LensFlarePass } from '@/components/canvas/postfx/lens-flare-pass'
 import { ScrambleText } from '@/components/dom/scramble-text'
 import { FluidBackground } from '@/components/canvas/fluid-background'
 
@@ -48,11 +47,9 @@ export default function Home() {
       {/* 3D Canvas Background */}
       <div className="fixed inset-0 z-[-1] pointer-events-none">
         <Canvas camera={{ position: [0, 0, 5], fov: 45 }}>
-          <Environment preset="city" />
           <FluidBackground />
           <GlassCenterpiece />
           <ProjectMeshes />
-          <LensFlarePass />
         </Canvas>
       </div>
 

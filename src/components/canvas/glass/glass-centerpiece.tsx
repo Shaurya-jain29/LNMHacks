@@ -3,133 +3,170 @@
 import { useRef, useMemo } from 'react'
 import * as THREE from 'three'
 import { useFrame, useThree } from '@react-three/fiber'
-import { useGLTF, MeshTransmissionMaterial } from '@react-three/drei'
+import { MeshTransmissionMaterial } from '@react-three/drei'
+import { FontLoader } from 'three/examples/jsm/loaders/FontLoader.js'
+import { TextGeometry } from 'three/examples/jsm/geometries/TextGeometry.js'
 import * as BufferGeometryUtils from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { FallingStickers } from './stickers'
 import { getLenisScrollSnapshot } from '@/lib/scroll-bus'
-import { getPointerUV } from '@/lib/pointer-bus'
+import { getPointerUV, isPointerInside } from '@/lib/pointer-bus'
+import { createRingLightFollower } from './ring-light-follower'
+import fontData from '../../../../public/helvetiker_bold.typeface.json'
 
 export function GlassCenterpiece() {
-  const meshRef = useRef<THREE.Mesh>(null)
-  const groupRef = useRef<THREE.Object3D>(null)
+  const groupRef = useRef<THREE.Group>(null)
+  const ringLightRef = useRef<THREE.PointLight>(null)
+  const ringFollower = useMemo(() => createRingLightFollower(), [])
   const { size } = useThree()
-  
-  // Use the exact GLB requested by the user
-  const { scene: gltf } = useGLTF('/LNM_Hacks.glb')
 
   const geometry = useMemo(() => {
-    // Collect all geometries
-    const geometries: THREE.BufferGeometry[] = []
-    gltf.traverse((child) => {
-      if ((child as THREE.Mesh).isMesh) {
-        const mesh = child as THREE.Mesh
-        const geom = mesh.geometry.clone()
-        geom.applyMatrix4(mesh.matrixWorld)
-        geometries.push(geom)
-      }
+    const loader = new FontLoader()
+    const font = loader.parse(fontData)
+
+    // "LNM" (top line in basic Helvetiker font)
+    const geomLNM = new TextGeometry('LNM', {
+      font,
+      size: 0.64,
+      depth: 0.16,
+      curveSegments: 16,
+      bevelEnabled: true,
+      bevelThickness: 0.05,
+      bevelSize: 0.035,
+      bevelOffset: 0,
+      bevelSegments: 8,
     })
 
-    if (geometries.length === 0) {
-      return new THREE.BoxGeometry()
-    }
+    // "Hacks" (bottom line base in basic Helvetiker font)
+    const geomHACKS = new TextGeometry('Hacks', {
+      font,
+      size: 0.46,
+      depth: 0.14,
+      curveSegments: 16,
+      bevelEnabled: true,
+      bevelThickness: 0.045,
+      bevelSize: 0.03,
+      bevelOffset: 0,
+      bevelSegments: 8,
+    })
 
-    // Merge into one
-    let merged = BufferGeometryUtils.mergeGeometries(geometries, false)
+    // "9.0" (in basic Helvetiker font)
+    const geom90 = new TextGeometry('9.0', {
+      font,
+      size: 0.33,
+      depth: 0.13,
+      curveSegments: 16,
+      bevelEnabled: true,
+      bevelThickness: 0.035,
+      bevelSize: 0.025,
+      bevelOffset: 0,
+      bevelSegments: 8,
+    })
 
-    // Center at origin
+    // Position "9.0" closely right after "HACKS"
+    geomHACKS.computeBoundingBox()
+    const hacksWidth = geomHACKS.boundingBox!.max.x - geomHACKS.boundingBox!.min.x
+    geom90.translate(hacksWidth + 0.08, 0, 0)
+
+    // Merge HACKS and 9.0 into the complete bottom line
+    const geomBottom = BufferGeometryUtils.mergeGeometries([geomHACKS, geom90], false)
+    geomBottom.computeBoundingBox()
+
+    // Left-align LNM with the start of HACKS
+    geomLNM.computeBoundingBox()
+    const lnmMinX = geomLNM.boundingBox!.min.x
+    const btmMinX = geomBottom.boundingBox!.min.x
+
+    // Tightened vertical line spacing
+    geomLNM.translate(-lnmMinX, 0.28, 0)
+    geomBottom.translate(-btmMinX, -0.28, 0)
+
+    let merged = BufferGeometryUtils.mergeGeometries([geomLNM, geomBottom], false)
+
+    // Center the complete unified text geometry at origin
     merged.computeBoundingBox()
     const box = merged.boundingBox!
     const center = new THREE.Vector3()
     box.getCenter(center)
     merged.translate(-center.x, -center.y, -center.z)
 
-    // Undo the ~22.5° Y rotation baked into the GLB's parent node
-    const undoRotation = new THREE.Matrix4().makeRotationY(Math.PI / 8)
-    merged.applyMatrix4(undoRotation)
-
-    // Normalize scale
-    merged.computeBoundingBox()
-    const box2 = merged.boundingBox!
-    const boxSize = new THREE.Vector3()
-    box2.getSize(boxSize)
-    const maxDim = Math.max(boxSize.x, boxSize.y, boxSize.z)
-    if (maxDim > 0) {
-      const s = 2.0 / maxDim
-      merged.scale(s, s, s)
-    }
-
-    // Squash it to make it thick glass but not overly extruded
-    merged.scale(1, 1, 0.25)
-
-    // Weld vertices and fix normals so smooth shading works on this GLB
+    // Weld coincident duplicate vertices and calculate smooth rounded normals for continuous tube bevels
     merged.deleteAttribute('normal')
-    merged = BufferGeometryUtils.mergeVertices(merged, 1e-4)
+    merged = BufferGeometryUtils.mergeVertices(merged, 1e-3)
     merged.computeVertexNormals()
 
     return merged
-  }, [gltf])
+  }, [])
 
-  const lightRef = useRef<THREE.PointLight>(null)
-  const targetLightPos = useRef(new THREE.Vector3(0, 0, 3))
-
-  useFrame((state) => {
-    if (!meshRef.current || !groupRef.current) return
+  useFrame((state, delta) => {
+    if (!groupRef.current) return
     
-    // Read scroll to position the centerpiece
+    // Scroll parallax translation
     const scroll = getLenisScrollSnapshot()
     const scrollYOffset = (scroll.scrollTop / size.height) * 10
     groupRef.current.position.y = -scrollYOffset
     
-    // Add a very subtle floating effect
+    // Subtle organic floating
     const t = state.clock.elapsedTime
-    groupRef.current.position.y += Math.sin(t * 1.5) * 0.05
-    groupRef.current.rotation.x = Math.sin(t * 0.5) * 0.05
-    groupRef.current.rotation.y = Math.cos(t * 0.6) * 0.05
+    groupRef.current.position.y += Math.sin(t * 1.5) * 0.04
 
-    // Smoothly track mouse with the light
+    // Pointer-driven ring light tracking around the outer circle
     const pointer = getPointerUV()
-    targetLightPos.current.x = (pointer.x - 0.5) * 15
-    targetLightPos.current.y = -(pointer.y - 0.5) * 15
-    
-    if (lightRef.current) {
-      lightRef.current.position.lerp(targetLightPos.current, 0.1)
+    const inside = isPointerInside()
+    const mappedX = (pointer.x - 0.5) * 10
+    const mappedY = (pointer.y - 0.5) * 6
+
+    const lightCoords = ringFollower(mappedX, mappedY, inside, delta)
+
+    if (ringLightRef.current) {
+      ringLightRef.current.position.set(lightCoords.x * 0.45, lightCoords.y * 0.45, 1.4)
     }
+
+    // Interactive 3D tilt
+    const targetRotX = (pointer.y - 0.5) * 0.12
+    const targetRotY = (pointer.x - 0.5) * 0.16
+    groupRef.current.rotation.x = THREE.MathUtils.lerp(groupRef.current.rotation.x, targetRotX, 0.08)
+    groupRef.current.rotation.y = THREE.MathUtils.lerp(groupRef.current.rotation.y, targetRotY, 0.08)
   })
 
   return (
     <>
-      {/* Interactive mouse light with soft falloff */}
-      <pointLight ref={lightRef} intensity={4.5} distance={16} color="#cce0ff" />
-      
-      {/* Front fill light */}
-      <directionalLight position={[0, 2, 5]} intensity={1.2} color="#9ec2ff" />
+      {/* 
+        Ring Light Follower:
+        Travels strictly on a fixed radius circle around the outer perimeter of the letters.
+        It illuminates only the curved edges/bevels and can never drift onto the front face.
+      */}
+      <pointLight ref={ringLightRef} intensity={14.0} distance={18} color="#ffffff" decay={1.8} />
 
-      {/* Backlight to illuminate through the glass from behind */}
-      <pointLight position={[0, 0, -2.5]} intensity={6.0} color="#4585ff" distance={10} />
+      {/* 4 peripheral grazing ring lights around the outer edges */}
+      <pointLight position={[0, 3.2, 0.8]} intensity={4.0} distance={10} color="#cce0ff" />
+      <pointLight position={[0, -3.2, 0.8]} intensity={4.0} distance={10} color="#cce0ff" />
+      <pointLight position={[-4.5, 0, 0.8]} intensity={4.0} distance={10} color="#cce0ff" />
+      <pointLight position={[4.5, 0, 0.8]} intensity={4.0} distance={10} color="#cce0ff" />
 
       {/* Ambient fill */}
-      <ambientLight intensity={0.5} />
+      <ambientLight intensity={0.45} />
 
-      <group ref={groupRef} position={[0, 0, 0]} scale={1.8}>
-        <mesh ref={meshRef} geometry={geometry}>
+      <group ref={groupRef} position={[0, 0, 0]} scale={1.0}>
+        <mesh geometry={geometry}>
           <MeshTransmissionMaterial
-            backside={true}
-            samples={6}
-            thickness={0.8}
-            chromaticAberration={0.08}
-            anisotropy={0.15}
-            distortion={0.02}
-            distortionScale={0.3}
-            temporalDistortion={0.1}
+            backside={false}
+            samples={4}
+            resolution={1024}
+            thickness={0.24}
+            chromaticAberration={0.02}
+            anisotropy={0.05}
+            distortion={0.0}
+            distortionScale={0.0}
+            temporalDistortion={0.0}
             iridescence={0.0}
             clearcoat={1.0}
-            clearcoatRoughness={0.03}
-            roughness={0.02}
-            transmission={0.96}
-            ior={1.22}
-            color="#5a98ff"
-            attenuationDistance={3.0}
-            attenuationColor="#c2dcff"
+            clearcoatRoughness={0.02}
+            roughness={0.015}
+            transmission={0.98}
+            ior={1.15}
+            color="#5898ff"
+            attenuationDistance={5.5}
+            attenuationColor="#dbe8ff"
           />
         </mesh>
       </group>
@@ -137,5 +174,3 @@ export function GlassCenterpiece() {
     </>
   )
 }
-
-useGLTF.preload('/LNM_Hacks.glb')
