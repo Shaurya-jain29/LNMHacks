@@ -3,8 +3,8 @@ import * as THREE from 'three'
 type PointerSnapshot = { x: number; y: number; inside: boolean }
 
 const uv = new THREE.Vector2(0.5, 0.5)
-let insideFlag = false
-let snapshotRef: PointerSnapshot = { x: 0.5, y: 0.5, inside: false }
+let insideFlag = true
+let snapshotRef: PointerSnapshot = { x: 0.5, y: 0.5, inside: true }
 const listeners = new Set<() => void>()
 let rafScheduled = false
 
@@ -25,32 +25,46 @@ const updatePointer = (next: PointerSnapshot) => {
 }
 
 function toUV(clientX: number, clientY: number): { x: number; y: number } {
+  const w = typeof window !== 'undefined' ? window.innerWidth : 1920
+  const h = typeof window !== 'undefined' ? window.innerHeight : 1080
   return {
-    x: clientX / window.innerWidth,
-    y: 1 - clientY / window.innerHeight, // flip to bottom-left origin for shaders
+    x: Math.max(0, Math.min(1, clientX / w)),
+    y: Math.max(0, Math.min(1, 1 - clientY / h)), // bottom-left origin for WebGL
   }
+}
+
+// Global auto-binding in browser
+if (typeof window !== 'undefined') {
+  const handleMove = (e: MouseEvent | PointerEvent | TouchEvent) => {
+    let cx = 0
+    let cy = 0
+    if ('touches' in e && e.touches.length > 0) {
+      cx = e.touches[0].clientX
+      cy = e.touches[0].clientY
+    } else if ('clientX' in e) {
+      cx = (e as MouseEvent).clientX
+      cy = (e as MouseEvent).clientY
+    } else {
+      return
+    }
+    const { x, y } = toUV(cx, cy)
+    updatePointer({ x, y, inside: true })
+  }
+
+  window.addEventListener('pointermove', handleMove, { passive: true, capture: true })
+  window.addEventListener('mousemove', handleMove, { passive: true, capture: true })
+  window.addEventListener('touchmove', handleMove, { passive: true, capture: true })
 }
 
 export function initPointerBus() {
-  const onMove = (e: PointerEvent) => {
-    const { x, y } = toUV(e.clientX, e.clientY)
-    updatePointer({ x, y, inside: true })
-  }
-  const reset = () => updatePointer({ x: 0.5, y: 0.5, inside: false })
-
-  window.addEventListener('pointermove', onMove, { passive: true })
-  window.addEventListener('pointerleave', reset)
-  window.addEventListener('blur', reset)
-  document.addEventListener('visibilitychange', () => { if (document.hidden) reset() })
-
-  return () => {
-    window.removeEventListener('pointermove', onMove)
-    window.removeEventListener('pointerleave', reset)
-    window.removeEventListener('blur', reset)
-  }
+  return () => {}
 }
 
-export const getPointerUV = () => uv          // mutable Vector2 — safe to read raw in WebGL
+export const getPointerUV = () => uv
 export const isPointerInside = () => insideFlag
 export const getPointerSnapshot = () => snapshotRef
-export const subscribePointer = (l: () => void) => { listeners.add(l); return () => listeners.delete(l) }
+export const subscribePointer = (l: () => void) => {
+  listeners.add(l)
+  return () => listeners.delete(l)
+}
+

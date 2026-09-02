@@ -5,10 +5,10 @@ import * as THREE from 'three'
 import { useFrame, useThree } from '@react-three/fiber'
 import { useFBO } from '@react-three/drei'
 import { lensFlareVertexShader, lensFlareFragmentShader } from '@/shaders/lens-flare'
+import { getLenisScrollSnapshot } from '@/lib/scroll-bus'
 
 export function LensFlarePass() {
   const { gl, scene, camera, size } = useThree()
-  const materialRef = useRef<THREE.ShaderMaterial>(null)
   
   const mainFbo = useFBO(size.width, size.height, {
     minFilter: THREE.LinearFilter,
@@ -24,9 +24,8 @@ export function LensFlarePass() {
   const uniforms = useMemo(() => ({
     tDiffuse: { value: null },
     uResolution: { value: new THREE.Vector2(size.width, size.height) },
-    uThreshold: { value: 0.85 },
-    uStreakScale: { value: 2.0 },
-    uBgColor: { value: new THREE.Color(0.01, 0.02, 0.15) }
+    uThreshold: { value: 0.70 },
+    uStreakScale: { value: 2.4 },
   }), [size])
 
   const quadMesh = useMemo(() => {
@@ -50,15 +49,24 @@ export function LensFlarePass() {
   }, [size, mainFbo, quadMesh])
   
   useFrame(() => {
+    // When the bright section containing the glass is scrolled out of viewport, stop the post-pass
+    const scroll = getLenisScrollSnapshot()
+    const scrollYOffset = (scroll.scrollTop / size.height) * 10
+    if (scrollYOffset > 15) {
+      gl.render(scene, camera)
+      return
+    }
+
     // Render full scene to FBO
     gl.setRenderTarget(mainFbo)
     gl.render(scene, camera)
     
-    // Apply lens flare and render to screen
+    // Apply Star 6 lens flare pass and render to screen
     quadMesh.material.uniforms.tDiffuse.value = mainFbo.texture
     gl.setRenderTarget(null)
     gl.render(quadScene, quadCamera)
-  }, 1) // Priority 1 (runs after GlassCenterpiece Priority 2)
+  }, 10)
 
   return null
 }
+

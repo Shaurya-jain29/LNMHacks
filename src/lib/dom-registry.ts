@@ -18,6 +18,9 @@ export const domRegistry = {
       listeners.forEach((l) => l())
     }
   },
+  getEntry(key: string) {
+    return registry.get(key)
+  },
   getEntries() {
     return Array.from(registry.entries()).map(([key, entry]) => ({ key, ...entry }))
   },

@@ -4,8 +4,13 @@ import { ReactLenis, useLenis } from 'lenis/react'
 import { addEffect } from '@react-three/fiber'
 import { useEffect } from 'react'
 import { bindLenisScrollBus } from '@/lib/scroll-bus'
+import { initPointerBus } from '@/lib/pointer-bus'
 
 export function ScrollShell({ children }: { children: React.ReactNode }) {
+  useEffect(() => {
+    return initPointerBus()
+  }, [])
+
   return (
     <ReactLenis root options={{ autoRaf: false, lerp: 0.1, smoothWheel: true }}>
       <LenisScrollEnvBridge />

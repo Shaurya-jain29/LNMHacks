@@ -5,7 +5,6 @@ import * as THREE from 'three'
 import { useFrame, useThree } from '@react-three/fiber'
 import { useTexture } from '@react-three/drei'
 import { getLenisScrollSnapshot } from '@/lib/scroll-bus'
-import { createDomRectSampler } from '@/lib/dom-rect-sampler'
 import { createCurlStrengthSampler } from './curl-strength'
 import { vertexShader, fragmentShader } from '@/shaders/dom-sync'
 import { domRegistry } from '@/lib/dom-registry'
@@ -20,13 +19,13 @@ function ProjectMesh({ project }: { project: any }) {
   
   // Apply sRGB correctly
   useMemo(() => {
-    map1.colorSpace = THREE.SRGBColorSpace
-    map2.colorSpace = THREE.SRGBColorSpace
+    if (map1) map1.colorSpace = THREE.SRGBColorSpace
+    if (map2) map2.colorSpace = THREE.SRGBColorSpace
   }, [map1, map2])
   
   const hoverSpring = useRef(0)
-  const polaritySpring = useRef(0)
-  const enteredViewport = useRef(false)
+  const polaritySpring = useRef(1.0)
+  const curlSamplerRef = useRef(createCurlStrengthSampler())
 
   const uniforms = useMemo(() => ({
     map: { value: map1 },
@@ -35,61 +34,45 @@ function ProjectMesh({ project }: { project: any }) {
     uHoverRevealProgress: { value: 0 },
     uDotPixelSize: { value: 8.0 },
     uViewportPx: { value: new THREE.Vector2(size.width, size.height) },
-    uPolarityPositive: { value: 0 },
+    uPolarityPositive: { value: 1.0 },
     uCurlStrength: { value: 0 }
-  }), [map1, map2])
+  }), [map1, map2, size])
 
-  useEffect(() => {
-    if (materialRef.current) {
-      materialRef.current.uniforms.uViewportPx.value.set(size.width, size.height)
+  useFrame((state, delta) => {
+    if (!materialRef.current || !meshRef.current) return
+    const entry = domRegistry.getEntry(project.id)
+    if (!entry || !entry.el) {
+      meshRef.current.visible = false
+      return
     }
-  }, [size])
-  
-  useEffect(() => {
-    const updateMesh = (rect: {top: number, left: number, width: number, height: number}, curl: number, hovered: boolean, delta: number) => {
-      if (!materialRef.current || !meshRef.current) return
-      
-      const isVisible = rect.top < size.height + 400 && rect.top + rect.height > -400
-      meshRef.current.visible = isVisible
-      if (!isVisible) return // Kill switch: skip updates/rendering if far off screen
 
-      const material = materialRef.current
-      const x = rect.left / size.width
-      const y = 1.0 - (rect.top + rect.height) / size.height // flip Y
-      const w = rect.width / size.width
-      const h = rect.height / size.height
-      material.uniforms.uRect.value.set(x, y, w, h)
-      material.uniforms.uCurlStrength.value = curl
-      
-      const targetHover = hovered ? 1 : 0
-      hoverSpring.current += (targetHover - hoverSpring.current) * (1 - Math.exp(-delta * 8))
-      material.uniforms.uHoverRevealProgress.value = hoverSpring.current
+    const rect = entry.el.getBoundingClientRect()
+    const isVisible = rect.bottom > -300 && rect.top < window.innerHeight + 300
+    meshRef.current.visible = isVisible
+    if (!isVisible) return
 
-      const isActuallyInView = rect.top < size.height && rect.top + rect.height > 0
-      if (isActuallyInView && !enteredViewport.current) {
-        enteredViewport.current = true
-      }
-      
-      const prefersReducedMotion = typeof window !== 'undefined' ? window.matchMedia('(prefers-reduced-motion: reduce)').matches : false
-      if (prefersReducedMotion) {
-         material.uniforms.uPolarityPositive.value = 1.0
-      } else {
-        const targetPolarity = enteredViewport.current ? 1 : 0
-        polaritySpring.current += (targetPolarity - polaritySpring.current) * (1 - Math.exp(-delta * 2))
-        material.uniforms.uPolarityPositive.value = polaritySpring.current
-      }
-    }
-    
-    const event = new CustomEvent('register-project-mesh', { detail: { id: project.id, update: updateMesh } })
-    window.dispatchEvent(event)
-    return () => {
-      const event = new CustomEvent('unregister-project-mesh', { detail: { id: project.id } })
-      window.dispatchEvent(event)
-    }
-  }, [size, project.id])
+    const clampedDelta = Math.min(delta, 0.1)
+    const scroll = getLenisScrollSnapshot()
+    const curl = curlSamplerRef.current(scroll.scrollTop, clampedDelta)
+
+    const x = rect.left / size.width
+    const y = 1.0 - (rect.top + rect.height) / size.height
+    const w = rect.width / size.width
+    const h = rect.height / size.height
+
+    const mat = materialRef.current
+    mat.uniforms.uRect.value.set(x, y, w, h)
+    mat.uniforms.uViewportPx.value.set(size.width, size.height)
+    mat.uniforms.uCurlStrength.value = curl
+
+    const targetHover = entry.hovered ? 1 : 0
+    hoverSpring.current += (targetHover - hoverSpring.current) * (1 - Math.exp(-clampedDelta * 8))
+    mat.uniforms.uHoverRevealProgress.value = hoverSpring.current
+    mat.uniforms.uPolarityPositive.value = 1.0
+  })
 
   return (
-    <mesh ref={meshRef} frustumCulled={false}>
+    <mesh ref={meshRef} frustumCulled={false} renderOrder={2}>
       <planeGeometry args={[2, 2]} />
       <shaderMaterial
         ref={materialRef}
@@ -105,51 +88,12 @@ function ProjectMesh({ project }: { project: any }) {
 }
 
 export function ProjectMeshes() {
-  const meshUpdaters = useRef<Record<string, Function>>({})
-  const samplerRef = useRef(createDomRectSampler())
-  const curlSamplerRef = useRef(createCurlStrengthSampler())
-  const domEntriesRef = useRef<{key: string, el: HTMLElement, hovered: boolean}[]>([])
-
-  useEffect(() => {
-    const updateEntries = () => {
-      domEntriesRef.current = domRegistry.getEntries()
-    }
-    updateEntries()
-    const unsubscribe = domRegistry.subscribe(updateEntries)
-    return () => { unsubscribe() }
-  }, [])
-
-  useEffect(() => {
-    const onRegister = (e: any) => { meshUpdaters.current[e.detail.id] = e.detail.update }
-    const onUnregister = (e: any) => { delete meshUpdaters.current[e.detail.id] }
-    window.addEventListener('register-project-mesh', onRegister)
-    window.addEventListener('unregister-project-mesh', onUnregister)
-    return () => {
-      window.removeEventListener('register-project-mesh', onRegister)
-      window.removeEventListener('unregister-project-mesh', onUnregister)
-    }
-  }, [])
-
-  useFrame((state, delta) => {
-    const scroll = getLenisScrollSnapshot()
-    
-    const rects = samplerRef.current.tick(scroll.scrollTop, domEntriesRef.current)
-    const curl = curlSamplerRef.current(scroll.scrollTop, delta)
-
-    domEntriesRef.current.forEach((entry) => {
-      const updater = meshUpdaters.current[entry.key]
-      const rect = rects[entry.key]
-      if (updater && rect) {
-        updater(rect, curl, entry.hovered, delta)
-      }
-    })
-  }, -3) // Priority -3 to run before render
-
   return (
     <group>
-      {PROJECTS.map(p => (
+      {PROJECTS.map((p) => (
         <ProjectMesh key={p.id} project={p} />
       ))}
     </group>
   )
 }
+
