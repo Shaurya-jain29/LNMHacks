@@ -90,6 +90,10 @@ function ProjectMesh({ project }: { project: any }) {
 export function ProjectMeshes() {
   return (
     <group>
+      {/* 3D Mesh for the About image placeholder */}
+      <ProjectMesh project={{ id: 'about-image', img1: '/projects/p1.svg', img2: '/projects/p2.svg' }} />
+      
+      {/* 3D Meshes for the project showcase */}
       {PROJECTS.map((p) => (
         <ProjectMesh key={p.id} project={p} />
       ))}
