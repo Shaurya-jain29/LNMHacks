@@ -3,14 +3,12 @@
 import { useRef, useMemo, useEffect } from 'react'
 import * as THREE from 'three'
 import { useFrame, useThree } from '@react-three/fiber'
-import { FontLoader } from 'three/examples/jsm/loaders/FontLoader.js'
-import { TextGeometry } from 'three/examples/jsm/geometries/TextGeometry.js'
 import * as BufferGeometryUtils from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { FallingStickers } from './stickers'
 import { getLenisScrollSnapshot } from '@/lib/scroll-bus'
 import { getPointerUV, isPointerInside } from '@/lib/pointer-bus'
 import { createRingLightFollower } from './ring-light-follower'
-import fontData from '../../../../public/helvetiker_bold.typeface.json'
+import { useGLTF } from '@react-three/drei'
 
 // Load animation: gentle scale-up from 50% to 100% (target scale 1.22)
 const LOAD_TARGET_SCALE = 1.22 // +21% total larger base size
@@ -125,64 +123,26 @@ export function GlassCenterpiece() {
     uCameraPos: { value: new THREE.Vector3(0, 0, 5) },
   }), [])
 
+  const { scene: gltfScene } = useGLTF('/hacks.glb') as any
+
   const geometry = useMemo(() => {
-    const loader = new FontLoader()
-    const font = loader.parse(fontData as any)
+    if (!gltfScene) return new THREE.BufferGeometry()
 
-    // "LNM" (top line) - proportional bevels
-    const geomLNM = new TextGeometry('LNM', {
-      font,
-      size: 0.65,
-      depth: 0.12,
-      curveSegments: 16,
-      bevelEnabled: true,
-      bevelThickness: 0.030,
-      bevelSize: 0.022,
-      bevelOffset: 0,
-      bevelSegments: 4,
+    const geometries: THREE.BufferGeometry[] = []
+    gltfScene.updateMatrixWorld(true)
+
+    gltfScene.traverse((child: any) => {
+      if (child.isMesh && child.geometry) {
+        const geo = child.geometry.clone()
+        geo.applyMatrix4(child.matrixWorld)
+        geometries.push(geo)
+      }
     })
 
-    // "Hacks" (bottom line base) - proportional bevels
-    const geomHACKS = new TextGeometry('Hacks', {
-      font,
-      size: 0.48,
-      depth: 0.10,
-      curveSegments: 16,
-      bevelEnabled: true,
-      bevelThickness: 0.022,
-      bevelSize: 0.016,
-      bevelOffset: 0,
-      bevelSegments: 4,
-    })
+    if (geometries.length === 0) return new THREE.BufferGeometry()
 
-    // "9.0" - clean, non-pinching bevels scaled for size 0.35
-    const geom90 = new TextGeometry('9.0', {
-      font,
-      size: 0.35,
-      depth: 0.09,
-      curveSegments: 16,
-      bevelEnabled: true,
-      bevelThickness: 0.014,
-      bevelSize: 0.010,
-      bevelOffset: 0,
-      bevelSegments: 3,
-    })
-
-    geomHACKS.computeBoundingBox()
-    const hacksWidth = geomHACKS.boundingBox!.max.x - geomHACKS.boundingBox!.min.x
-    geom90.translate(hacksWidth + 0.08, 0, 0)
-
-    const geomBottom = BufferGeometryUtils.mergeGeometries([geomHACKS, geom90], false)
-    geomBottom.computeBoundingBox()
-
-    geomLNM.computeBoundingBox()
-    const lnmMinX = geomLNM.boundingBox!.min.x
-    const btmMinX = geomBottom.boundingBox!.min.x
-
-    geomLNM.translate(-lnmMinX, 0.30, 0)
-    geomBottom.translate(-btmMinX, -0.30, 0)
-
-    const merged = BufferGeometryUtils.mergeGeometries([geomLNM, geomBottom], false)
+    const merged = BufferGeometryUtils.mergeGeometries(geometries, false)
+    if (!merged) return geometries[0]
 
     merged.computeBoundingBox()
     const box = merged.boundingBox!
@@ -190,8 +150,17 @@ export function GlassCenterpiece() {
     box.getCenter(center)
     merged.translate(-center.x, -center.y, -center.z)
 
+    // Normalize scale so it fits nicely
+    const sizeVec = new THREE.Vector3()
+    box.getSize(sizeVec)
+    const maxDim = Math.max(sizeVec.x, sizeVec.y, sizeVec.z)
+    if (maxDim > 0) {
+      const scale = 2.5 / maxDim // target size around 2.5 units
+      merged.scale(scale, scale, scale)
+    }
+
     return merged
-  }, [])
+  }, [gltfScene])
 
   useFrame((state, delta) => {
     if (!groupRef.current || !materialRef.current || !meshRef.current) return
@@ -300,3 +269,5 @@ export function GlassCenterpiece() {
     </>
   )
 }
+
+useGLTF.preload('/hacks.glb')

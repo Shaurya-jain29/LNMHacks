@@ -81,8 +81,8 @@ export function InnovateSection() {
       containerRef.current.style.visibility = anyVisible ? 'visible' : 'hidden'
     }
 
-    update()
-    return subscribeLenisScroll(update)
+    const unsubscribe = subscribeLenisScroll(update)
+    return () => { unsubscribe() }
   }, [])
 
   return (
