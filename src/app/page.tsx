@@ -9,6 +9,9 @@ import { getPointerUV } from '@/lib/pointer-bus'
 import { ProjectMeshes } from '@/components/canvas/grid/project-meshes'
 import { ProjectGrid } from '@/components/dom/project-grid'
 import { GlassCenterpiece } from '@/components/canvas/glass/glass-centerpiece'
+import { CursorArrow } from '@/components/canvas/glass/cursor-arrow'
+import { RadialSpeedLines } from '@/components/canvas/radial-speed-lines'
+import { InnovateSection } from '@/components/dom/innovate-section'
 import { ScrambleText } from '@/components/dom/scramble-text'
 import { FluidBackground } from '@/components/canvas/fluid-background'
 import { LensFlarePass } from '@/components/canvas/postfx/lens-flare-pass'
@@ -49,22 +52,29 @@ export default function Home() {
       <div className="fixed inset-0 z-[-1] pointer-events-none">
         <Canvas camera={{ position: [0, 0, 5], fov: 45 }}>
           <Suspense fallback={null}>
+            <RadialSpeedLines />
             <FluidBackground />
             <GlassCenterpiece />
+            <CursorArrow />
             <ProjectMeshes />
           </Suspense>
         </Canvas>
       </div>
 
-      {/* Spacer to push ProjectGrid down by one full viewport height */}
+      {/* Fixed DOM overlay: "INNOVATE WITH PURPOSE" text */}
+      <InnovateSection />
+
+      {/* Spacer to push ProjectGrid down by one full viewport height (hero) */}
       <div className="h-screen w-full pointer-events-none" />
 
       {/* Debug HUD */}
       <DebugHud />
 
-
-
       <ProjectGrid />
+
+      {/* Arrow section — scroll space for cursor arrow zoom + innovate transition.
+          All R3F components read this element's position via getArrowSectionVH(). */}
+      <div id="arrow-section" className="w-full" style={{ height: '1600vh' }} />
     </main>
   )
 }

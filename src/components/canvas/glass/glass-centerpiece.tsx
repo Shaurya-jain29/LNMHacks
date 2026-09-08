@@ -199,6 +199,14 @@ export function GlassCenterpiece() {
     const clampedDelta = Math.min(delta, 0.1)
     loadElapsedRef.current += clampedDelta
 
+    // Skip expensive FBO pass when centerpiece is scrolled well off-screen
+    const earlyScroll = getLenisScrollSnapshot()
+    const earlyScrollVH = earlyScroll.scrollTop / size.height
+    if (earlyScrollVH > 2.0) {
+      meshRef.current.visible = false
+      return
+    }
+
     // === LOAD ANIMATION: gentle scale-up from 50% to 100% (+16% larger base size) ===
     const loadProgress = Math.min(1.0, loadElapsedRef.current / LOAD_DURATION)
     const easedLoad = easeOutQuart(loadProgress)

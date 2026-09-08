@@ -98,14 +98,14 @@ float snoise(vec3 v) {
 void main() {
   vec2 uv = vUv;
 
-  vec3 baseSkyBlue = vec3(0.686, 0.835, 0.957);
+  vec3 baseSkyPink = vec3(0.92, 0.54, 0.64);
 
   if (uDisabled > 0.5) {
-    gl_FragColor = vec4(baseSkyBlue, 1.0);
+    gl_FragColor = vec4(baseSkyPink, 1.0);
     return;
   }
 
-  // 1. Hero World-Space Fluid Wave Field
+  // 1. Hero World-Space Fluid Wave Field (5-octave wave dynamics)
   vec2 worldCoord = vec2(uv.x * uAspect, uv.y);
   
   float angle = 0.66;
@@ -116,18 +116,21 @@ void main() {
     worldCoord.x * sinA + worldCoord.y * cosA
   );
 
-  float waveNoise = snoise(vec3(waveUv.y * 3.4, waveUv.x * 1.6, uTime * 0.04));
-  float wave1 = sin(waveUv.y * 12.0 + waveNoise * 2.2 - uTime * 0.25) * 0.5 + 0.5;
-  float wave2 = sin(waveUv.y * 22.0 - waveNoise * 1.4 + uTime * 0.18) * 0.5 + 0.5;
-  float wave3 = sin(waveUv.y * 36.0 + waveNoise * 0.8 - uTime * 0.12) * 0.5 + 0.5;
+  float waveNoise = snoise(vec3(waveUv.y * 3.4, waveUv.x * 1.6, uTime * 0.05));
+  float wave1 = sin(waveUv.y * 14.0 + waveNoise * 2.8 - uTime * 0.30) * 0.5 + 0.5;
+  float wave2 = sin(waveUv.y * 24.0 - waveNoise * 2.0 + uTime * 0.22) * 0.5 + 0.5;
+  float wave3 = sin(waveUv.y * 38.0 + waveNoise * 1.2 - uTime * 0.15) * 0.5 + 0.5;
+  float wave4 = sin(waveUv.x * 16.0 + waveUv.y * 12.0 + waveNoise * 2.5 + uTime * 0.25) * 0.5 + 0.5;
+  float wave5 = cos(waveUv.x * 28.0 - waveUv.y * 18.0 - waveNoise * 1.5 - uTime * 0.18) * 0.5 + 0.5;
   
-  float bgWaves = wave1 * 0.48 + wave2 * 0.36 + wave3 * 0.16;
-  bgWaves = smoothstep(0.10, 0.90, bgWaves);
-  bgWaves = pow(bgWaves, 1.2);
+  float bgWaves = wave1 * 0.35 + wave2 * 0.25 + wave3 * 0.15 + wave4 * 0.15 + wave5 * 0.10;
+  bgWaves = smoothstep(0.05, 0.95, bgWaves);
+  bgWaves = pow(bgWaves, 1.1);
 
-  vec3 deepSkyBlue = vec3(0.60, 0.80, 0.95);
-  vec3 brightSkyBlue = vec3(0.76, 0.89, 0.98);
-  vec3 ambientBase = mix(deepSkyBlue, brightSkyBlue, bgWaves * 0.45);
+  // Jaipur Pink Sky Tones
+  vec3 deepJaipurPink   = vec3(0.86, 0.40, 0.52);
+  vec3 brightJaipurPink = vec3(0.96, 0.62, 0.70);
+  vec3 ambientBase      = mix(deepJaipurPink, brightJaipurPink, bgWaves * 0.55);
 
   // 2. Moving Pointer Spotlight
   vec2 delta = uv - uPointerGlow;
@@ -139,21 +142,21 @@ void main() {
   spotMask = smoothstep(0.005, 1.0, spotMask);
 
   float waveIllumination = spotMask * (0.35 + bgWaves * 0.65) * uGlowIntensity;
-  vec3 warmWhite = vec3(1.0, 0.99, 0.94);
-  vec3 sunnyGold  = vec3(0.97, 0.94, 0.86);
-  vec3 waveTint   = mix(sunnyGold, warmWhite, bgWaves);
-  vec3 heroColor = mix(ambientBase, waveTint, clamp(waveIllumination * 0.85, 0.0, 1.0));
+  
+  // Warm Sunset Orange Accents
+  vec3 warmOrangeAccent = vec3(1.00, 0.64, 0.35);
+  vec3 peachSkyGlow     = vec3(1.00, 0.78, 0.52);
+  vec3 waveTint         = mix(warmOrangeAccent, peachSkyGlow, bgWaves);
+  vec3 heroColor        = mix(ambientBase, waveTint, clamp(waveIllumination * 0.85, 0.0, 1.0));
 
-  // 3. Work Section Background: Crisp Blueprint Dot-Grid (matching haoqi.design)
+  // 3. Work Section Background
   vec2 pixelPos = uv * uResolution;
   float gridSpacing = 28.0;
   vec2 cellPos = mod(pixelPos, vec2(gridSpacing));
   
-  // Dot matrix at grid intersections
   float dotDist = length(cellPos - vec2(gridSpacing * 0.5));
   float gridDot = 1.0 - smoothstep(1.0, 2.2, dotDist);
   
-  // Crosshairs every 4 cells
   vec2 majorCell = mod(pixelPos, vec2(gridSpacing * 4.0));
   float crossDistX = abs(majorCell.x - gridSpacing * 2.0);
   float crossDistY = abs(majorCell.y - gridSpacing * 2.0);
@@ -161,19 +164,16 @@ void main() {
   float crossV = (1.0 - smoothstep(0.5, 1.2, crossDistX)) * (1.0 - step(4.0, crossDistY));
   float crosshairs = clamp(crossH + crossV, 0.0, 1.0);
 
-  // Clean luminous blueprint tones
-  vec3 workBase = vec3(0.93, 0.96, 0.99);
-  vec3 gridDotColor = vec3(0.72, 0.82, 0.93);
-  vec3 crossColor = vec3(0.58, 0.72, 0.88);
+  vec3 workBase = vec3(0.98, 0.94, 0.95);
+  vec3 gridDotColor = vec3(0.92, 0.72, 0.78);
+  vec3 crossColor = vec3(0.88, 0.60, 0.68);
   
   vec3 workPattern = mix(workBase, gridDotColor, gridDot * 0.45);
   workPattern = mix(workPattern, crossColor, crosshairs * 0.55);
 
-  // Cursor sunlight on work grid
-  vec3 workSunnyGlow = vec3(1.0, 0.99, 0.95);
+  vec3 workSunnyGlow = vec3(1.00, 0.82, 0.68);
   vec3 workColor = mix(workPattern, workSunnyGlow, spotMask * 0.22 * uGlowIntensity);
 
-  // Smooth background switch based on scroll progress
   float scrollT = smoothstep(0.05, 0.85, uScroll);
   vec3 finalColor = mix(heroColor, workColor, scrollT);
 

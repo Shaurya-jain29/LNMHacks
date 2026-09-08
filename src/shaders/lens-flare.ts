@@ -52,8 +52,8 @@ void main() {
   flare += streak(vec2(px.x * 0.8660254, px.y * 0.5));
   flare += streak(vec2(px.x * 0.8660254, -px.y * 0.5));
   
-  // Additive composite with subtle cool optical tint
-  vec3 flareTint = vec3(0.88, 0.94, 1.0);
+  // Additive composite with warm Jaipur pink-orange optical tint
+  vec3 flareTint = vec3(1.0, 0.82, 0.72);
   gl_FragColor = vec4(base + flare * flareTint * 0.45, 1.0);
 }
 `
